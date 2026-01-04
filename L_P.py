@@ -69,7 +69,7 @@ except ImportError as e:
 
 # Telegram 控制模块（可选）
 try:
-    from telegram_control import TelegramBotControl, start_telegram_control
+    from telegram_bot import TelegramBotControl, start_telegram_control
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
