@@ -1,0 +1,35 @@
+# SAFE requirements for Lighter-Paradex arbitrage bot
+# This file avoids pulling in torch and other heavy ML dependencies
+# Use: pip install -r requirements-safe.txt
+
+# ===== Core dependencies =====
+python-telegram-bot>=20.7
+aiohttp>=3.8.0
+websockets>=12.0
+asyncio>=3.4.3
+python-dotenv>=1.0.0
+
+# ===== Exchange SDKs =====
+# Lighter SDK - confirmed version 0.1.0 works
+lighter>=0.1.0
+
+# Paradex SDK - specific commit that works with our implementation
+paradex-py @ git+https://github.com/tradeparadex/paradex-py.git@7eb7aa3825d466b2f14abd3e94f2ce6b002d6a63
+
+# Web3 for Ethereum interactions
+web3>=6.0.0
+
+# Starknet SDK - IMPORTANT: using version 0.20.0 to avoid torch dependencies
+# Version 0.21.0+ may introduce torch as optional dependency
+starknet-py==0.20.0
+
+# ===== Utilities =====
+ccxt>=4.3.0
+requests>=2.31.0
+cryptography>=42.0.0
+
+# ===== Optional: if you need specific versions =====
+# Uncomment if you encounter conflicts
+#python-telegram-bot==20.7
+#aiohttp==3.8.0
+#web3==6.0.0

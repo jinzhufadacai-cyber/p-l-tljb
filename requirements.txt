@@ -1,0 +1,20 @@
+# Python dependencies for Lighter-Paradex arbitrage bot with Telegram control
+python-telegram-bot>=20.7  # 放宽版本限制以解决依赖冲突
+aiohttp>=3.8.0
+websockets>=12.0
+asyncio>=3.4.3
+python-dotenv>=1.0.0
+
+# Real exchange SDKs for production trading
+# Lighter SDK - 使用 elliottech 的官方SDK
+# 注意：lighter SDK 需要从GitHub安装，PyPI上的lighter是不同的包
+# 安装命令: pip install git+https://github.com/elliottech/lighter-python.git
+# Paradex SDK (参考实现使用特定提交)
+paradex-py @ git+https://github.com/tradeparadex/paradex-py.git@7eb7aa3825d466b2f14abd3e94f2ce6b002d6a63
+web3>=6.0.0
+starknet-py>=0.21.0
+
+# Additional utilities for real trading
+ccxt>=4.3.0
+requests>=2.31.0
+cryptography>=42.0.0

@@ -1,0 +1,22 @@
+# Constraints to avoid heavy ML dependencies
+# Use with: pip install -r requirements.txt -c constraints.txt
+
+# Explicitly exclude torch and related packages
+torch==999.0.0
+torchvision==999.0.0
+torchaudio==999.0.0
+triton==999.0.0
+
+# Exclude CUDA packages
+nvidia-cuda-runtime-cu12==999.0.0
+nvidia-cudnn-cu12==999.0.0
+nvidia-cublas-cu12==999.0.0
+nvidia-cufft-cu12==999.0.0
+nvidia-curand-cu12==999.0.0
+nvidia-cusolver-cu12==999.0.0
+nvidia-cusparse-cu12==999.0.0
+nvidia-nccl-cu12==999.0.0
+nvidia-nvtx-cu12==999.0.0
+
+# Version constraints for other potentially problematic packages
+# Add any other packages that cause issues here
