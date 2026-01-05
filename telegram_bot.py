@@ -817,6 +817,28 @@ PID: {info['pid'] or 'N/A'}
     
     def run(self):
         """运行机器人"""
+        # 再次检查单实例（防止在检查后、启动前有新的实例启动）
+        lock_file = Path('telegram_bot.lock')
+        pid_file = Path('telegram_bot.pid')
+        if lock_file.exists() and pid_file.exists():
+            try:
+                with open(pid_file, 'r') as f:
+                    saved_pid = int(f.read().strip())
+                if saved_pid != os.getpid():
+                    # 有其他进程的PID，检查是否还在运行
+                    if sys.platform == 'win32':
+                        result = subprocess.run(
+                            ['tasklist', '/FI', f'PID eq {saved_pid}'],
+                            capture_output=True,
+                            text=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                        )
+                        if result.returncode == 0 and str(saved_pid) in result.stdout and 'python.exe' in result.stdout:
+                            self.logger.error(f"检测到另一个实例正在运行 (PID: {saved_pid})，退出")
+                            sys.exit(1)
+            except:
+                pass
+        
         self.logger.info("启动Telegram控制器...")
         app = Application.builder().token(self.token).build()
         app.add_handler(CommandHandler("start", self.cmd_start))
@@ -870,11 +892,13 @@ def check_single_instance():
                         text=True,
                         creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
                     )
-                    if str(old_pid) in result.stdout:
+                    # 检查是否在输出中找到进程（tasklist成功时会在输出中包含PID）
+                    if result.returncode == 0 and str(old_pid) in result.stdout and 'python.exe' in result.stdout:
                         print(f"错误: 已有一个机器人实例在运行 (PID: {old_pid})")
                         print("请先停止现有实例，或删除 lock 文件: telegram_bot.lock")
-                        sys.exit(1)
-            except Exception:
+                        print("提示: 可以运行 'taskkill /PID {old_pid} /F' 来停止该进程")
+                        return False
+            except Exception as e:
                 # 如果检查失败，尝试删除旧文件并继续
                 pass
             
@@ -893,8 +917,11 @@ def check_single_instance():
         
         # 注册退出时清理
         def cleanup():
-            lock_file.unlink(missing_ok=True)
-            pid_file.unlink(missing_ok=True)
+            try:
+                lock_file.unlink(missing_ok=True)
+                pid_file.unlink(missing_ok=True)
+            except:
+                pass
         atexit.register(cleanup)
         
         return True
