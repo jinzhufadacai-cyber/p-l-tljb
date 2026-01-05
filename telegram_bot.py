@@ -17,11 +17,19 @@ import logging
 import subprocess
 import time
 import threading
+import atexit
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Windows 文件锁支持
+try:
+    import msvcrt
+    HAS_MSVCRT = True
+except ImportError:
+    HAS_MSVCRT = False
 
 try:
     from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -428,13 +436,29 @@ class TelegramBotControl:
             return
         try:
             message = f"{title}\n\n*Paradex*\n"
-            for asset, amount in paradex_balance.items():
-                if amount > 0:
-                    message += f"  {asset}: {amount:.6f}\n"
+            if paradex_balance:
+                has_balance = False
+                for asset, amount in paradex_balance.items():
+                    if amount > 0:
+                        message += f"  {asset}: {amount:.6f}\n"
+                        has_balance = True
+                if not has_balance:
+                    message += "  暂无余额数据\n"
+            else:
+                message += "  获取余额失败或暂无数据\n"
+            
             message += "\n*Lighter*\n"
-            for asset, amount in lighter_balance.items():
-                if amount > 0:
-                    message += f"  {asset}: {amount:.6f}\n"
+            if lighter_balance:
+                has_balance = False
+                for asset, amount in lighter_balance.items():
+                    if amount > 0:
+                        message += f"  {asset}: {amount:.6f}\n"
+                        has_balance = True
+                if not has_balance:
+                    message += "  暂无余额数据\n"
+            else:
+                message += "  获取余额失败或暂无数据\n"
+            
             message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             await self.send_notification(message)
         except Exception as e:
@@ -555,9 +579,28 @@ class ArbitrageProcessManager:
                     text=True, bufsize=1, env=env, cwd=os.getcwd()
                 )
                 
-                time.sleep(0.5)
+                time.sleep(1.0)  # 增加等待时间，让进程有足够时间输出错误信息
                 if self.process.poll() is not None:
-                    self.logger.error("进程立即退出")
+                    # 读取错误输出以获取退出原因
+                    error_output = ""
+                    stdout_output = ""
+                    try:
+                        if self.process.stderr:
+                            error_output = self.process.stderr.read()
+                        if self.process.stdout:
+                            stdout_output = self.process.stdout.read()
+                    except Exception as e:
+                        self.logger.warning(f"读取进程输出时出错: {e}")
+                    exit_code = self.process.returncode
+                    self.logger.error(f"进程立即退出，退出码: {exit_code}")
+                    if error_output:
+                        self.logger.error(f"错误输出: {error_output[:500]}")
+                    if stdout_output:
+                        self.logger.error(f"标准输出: {stdout_output[:500]}")
+                    # 保存错误信息以便后续查询
+                    with self.lock:
+                        if error_output:
+                            self.error_buffer.append(f"进程退出 (code={exit_code}): {error_output[:200]}")
                     self.status = BotStatus.ERROR
                     return False
                 
@@ -683,7 +726,18 @@ class TelegramBotController:
         if self.process_manager.start():
             await update.message.reply_text(f"✅ 套利脚本启动成功\nPID: {self.process_manager.process.pid}")
         else:
-            await update.message.reply_text("❌ 启动失败，请检查日志")
+            # 获取错误信息
+            status = self.process_manager.get_status()
+            error_msg = "❌ 启动失败"
+            if status.get('recent_errors'):
+                error_details = '\n'.join(status['recent_errors'][-3:])
+                # 限制错误信息长度
+                if len(error_details) > 500:
+                    error_details = error_details[:500] + "..."
+                error_msg += f"\n\n错误信息:\n{error_details}"
+            else:
+                error_msg += "\n请检查日志文件或确保环境变量配置正确"
+            await update.message.reply_text(error_msg)
     
     async def cmd_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self.is_authorized(update.effective_user.id):
@@ -796,8 +850,65 @@ async def start_telegram_control(token: str, chat_id: Optional[str] = None,
         return None
 
 
+def check_single_instance():
+    """检查是否已有实例在运行，确保只有一个进程"""
+    lock_file = Path('telegram_bot.lock')
+    pid_file = Path('telegram_bot.pid')
+    
+    # 如果锁文件存在，检查对应的进程是否还在运行
+    if lock_file.exists() and pid_file.exists():
+        try:
+            with open(pid_file, 'r') as f:
+                old_pid = int(f.read().strip())
+            
+            # 检查进程是否存在（Windows）
+            try:
+                if sys.platform == 'win32':
+                    result = subprocess.run(
+                        ['tasklist', '/FI', f'PID eq {old_pid}'],
+                        capture_output=True,
+                        text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                    )
+                    if str(old_pid) in result.stdout:
+                        print(f"错误: 已有一个机器人实例在运行 (PID: {old_pid})")
+                        print("请先停止现有实例，或删除 lock 文件: telegram_bot.lock")
+                        sys.exit(1)
+            except Exception:
+                # 如果检查失败，尝试删除旧文件并继续
+                pass
+            
+            # 进程不存在，删除旧文件
+            lock_file.unlink(missing_ok=True)
+            pid_file.unlink(missing_ok=True)
+        except (ValueError, FileNotFoundError):
+            # PID 文件损坏或不存在，删除旧文件
+            lock_file.unlink(missing_ok=True)
+            pid_file.unlink(missing_ok=True)
+    
+    # 创建锁文件和 PID 文件
+    try:
+        lock_file.write_text('locked')
+        pid_file.write_text(str(os.getpid()))
+        
+        # 注册退出时清理
+        def cleanup():
+            lock_file.unlink(missing_ok=True)
+            pid_file.unlink(missing_ok=True)
+        atexit.register(cleanup)
+        
+        return True
+    except Exception as e:
+        print(f"创建锁文件失败: {e}")
+        return False
+
+
 def main():
     """主入口 - 独立运行控制器"""
+    # 检查单实例（必须在日志配置之前，避免日志文件冲突）
+    if not check_single_instance():
+        sys.exit(1)
+    
     # 配置日志
     logging.basicConfig(
         level=logging.INFO,
@@ -833,6 +944,12 @@ def main():
         print("\n机器人已停止")
         if bot.process_manager:
             bot.process_manager.stop()
+    finally:
+        # 清理锁文件
+        lock_file = Path('telegram_bot.lock')
+        pid_file = Path('telegram_bot.pid')
+        lock_file.unlink(missing_ok=True)
+        pid_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

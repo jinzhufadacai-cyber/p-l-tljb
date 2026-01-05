@@ -201,11 +201,13 @@ class LighterParadexArbitrageBot:
     async def get_all_balances(self) -> Tuple[Dict[str, float], Dict[str, float]]:
         """获取两个交易所的余额"""
         try:
+            self.logger.info("正在获取交易所余额...")
             paradex_balance = await self.paradex_exchange.get_balance()
             lighter_balance = await self.lighter_exchange.get_balance()
+            self.logger.info(f"Paradex余额: {paradex_balance}, Lighter余额: {lighter_balance}")
             return paradex_balance, lighter_balance
         except Exception as e:
-            self.logger.error(f"获取余额失败: {e}")
+            self.logger.error(f"获取余额失败: {e}", exc_info=True)
             return {}, {}
     
     async def send_startup_balance_report(self):
